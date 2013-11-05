@@ -1,0 +1,263 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package statisticsscript;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.StringReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.*;
+import org.xml.sax.InputSource;
+
+
+/**
+ * Skript pro posilani XMLEventu pro StatisticsServer
+ * Monitoruje IndexerGetStatus, parsuje ID, RECEIVED_TIME a COMMAND
+ * @author Ing. Ivan Jelinek, HP, 22. 10. 2013
+ */
+class Stats {
+    
+
+    private String getIndexerStatus;
+    private String xmlEvent;
+    private String xmlOdpoved = "";
+    private String xmlOdpovedStat= "";
+    private String nazevKomponenty;
+    private static final String received = "<received_time>";
+    private static final String received2 = "</received_time>";
+    private static final String id = "<id>";
+    private static final String id2 = "</id>";
+    private static final String command = "<index_command>";
+    private static final String command2 = "</index_command>";
+    private static final String statu = "<status>";
+    private static final String statu2 = "</status>";
+    private static final String komponenta = "<komponenta>";
+    private static final String komponenta2 = "</komponenta>";
+    
+    // promenne k upravam podle potreby
+    private String host = "127.0.0.1";
+    private String hostStat = "127.0.0.1";
+    private String port = "10000";
+    private String portStat = "19870";
+    private String pozadavek = "a=indexergetstatus&maxresults=10";
+    private String pozadavekStat = "a=event";
+    
+    //Testovaci promenne
+    //private String host = "95.80.221.105";
+    //private String hostStat = "95.80.221.105";
+
+
+    public Stats() {
+        getIndexerStatus = sendToIDOL(pozadavek, host, "9000", "Proxy");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+        getIndexerStatus = sendToIDOL(pozadavek, host, "21000", "Content1");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+        getIndexerStatus = sendToIDOL(pozadavek, host, "22000", "Content2");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+        getIndexerStatus = sendToIDOL(pozadavek, host, "23000", "Content3");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+        getIndexerStatus = sendToIDOL(pozadavek, host, "26000", "Content6");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+        getIndexerStatus = sendToIDOL(pozadavek, host, "9070", "DIH");
+        prepareXmlEvent(getIndexerStatus);
+        sendToStats(xmlEvent);
+        
+     //   getIndexerStatus = sendToIDOL(pozadavek, host, "30000", "RouteTask");
+     //   prepareXmlEvent(getIndexerStatus);
+     //   sendToStats(xmlEvent);
+
+    }
+    /*
+     * Metoda posila IndexerGetStatus na IDOL a zpracuje odpoved
+     * @parameters String rq - promenna pozadavek (vlastni a=indexergetstatus...)
+     */
+    private String sendToIDOL(String rq, String hostIP, String portIP, String nazevKomponent) {
+        String dotaz = "http://" + hostIP + ":" + portIP + "/" + rq;
+        this.nazevKomponenty = nazevKomponent;
+        //System.out.println(dotaz);
+        try
+      {
+         URL url = new URL(dotaz);
+         //System.out.println("Oteviram spojeni.");
+         URLConnection urlConnection = url.openConnection();
+         HttpURLConnection connection = null;
+         if(urlConnection instanceof HttpURLConnection)
+         {
+            connection = (HttpURLConnection) urlConnection;
+         }
+         else
+         {
+            System.out.println("Please enter an HTTP URL.");
+            return xmlOdpoved;
+         }
+         BufferedReader in = new BufferedReader(
+         new InputStreamReader(connection.getInputStream()));
+         String current;
+         xmlOdpoved = "";
+         while((current = in.readLine()) != null)
+         {
+            xmlOdpoved += current;
+         }
+         //System.out.println("Odpoved na indexer je: " +xmlOdpoved );
+        
+         return xmlOdpoved;
+      }catch(IOException e)
+      {
+         e.printStackTrace();
+      }
+        
+
+        
+        return xmlOdpoved;
+    }
+/*
+ * metoda upravi odpoved z IDOLu, rozprasuje ji a rozhodne, ktere casti zustanou
+ * v prikazech kde je & je nahradi ; (IDOL jinak nesezere XML)
+ * @parameters String indexerStatus - odpoved IDOLu na dotaz getindexerstatus
+ */
+    private void prepareXmlEvent(String indexerStatus) {
+
+        String xml = "<autnresponse xmlns:autn=\"http://schemas.autonomy.com/aci/\"><responsedata><item>";
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy/MM/dd HH:mm");
+        
+     //   Date dnes = new Date();
+        Date minDate = new Date();
+        Date maxDate = new Date();
+        //za uplynulou pulhodinu !
+        minDate.setMinutes(minDate.getMinutes()-30);
+      //  String dnesStr = (formatter.format(dnes)).toString();
+       
+        
+
+        try {
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        DocumentBuilder db = dbf.newDocumentBuilder();
+        InputSource is = new InputSource();
+        is.setCharacterStream(new StringReader(indexerStatus));
+
+        Document doc = db.parse(is);
+        NodeList nodes = doc.getElementsByTagName("item");
+        
+        xml += komponenta + this.nazevKomponenty;
+
+        // iterate the commands
+        for (int i = 0; i < nodes.getLength(); i++) {
+           Element element = (Element) nodes.item(i);
+
+           NodeList receivedTime = element.getElementsByTagName("received_time");
+           NodeList description = element.getElementsByTagName("id");
+           NodeList indexCommand = element.getElementsByTagName("index_command");
+           NodeList status = element.getElementsByTagName("status");
+           
+           Element recTimeEl = (Element) receivedTime.item(0);
+           Element idEl = (Element) description.item(0);
+           Element indEl = (Element) indexCommand.item(0);
+           Element statEl = (Element) status.item(0);
+           
+           Date date = formatter.parse(getCharacterDataFromElement(recTimeEl));
+
+
+           String dateStr = formatter.format(date).toString();
+           
+           //System.out.println(dateStr);
+           
+           
+	   if (date.compareTo(minDate) >=0 & date.compareTo(maxDate)< 0) {
+           
+                xml = xml + id + getCharacterDataFromElement(idEl) + id2;
+                xml = xml + received + getCharacterDataFromElement(recTimeEl) + received2;
+                xml = xml + command + getCharacterDataFromElement(indEl).replaceAll("&", ";") + command2;
+                xml = xml + statu + getCharacterDataFromElement(statEl) + statu2;
+                 //System.out.println( getCharacterDataFromElement(indEl).replaceAll("&", "amp"));
+                
+                //Vypis pro log
+                System.out.println("Command :" + getCharacterDataFromElement(indEl) + 
+                        ", id prikazu: " + getCharacterDataFromElement(idEl) +
+                        ", status prikazu: " + getCharacterDataFromElement(statEl)
+                        );
+            }
+ 
+        }
+        xml = xml + this.komponenta2 + "</item></responsedata></autnresponse>";
+        System.out.println("Mereno: komponenta "  + this.nazevKomponenty + " " + minDate + " - " + maxDate); 
+       // System.out.println(xml);
+    }
+    catch (Exception e) {
+        e.printStackTrace();
+    }
+   
+    this.xmlEvent = URLEncoder.encode(xml);
+    //System.out.println(xml);
+    }
+/*
+ * vnitrni metoda pro prepareXmlEvent ktera vraci String s obsahem elementu XML
+ * @parameters Element e - element XML (napr. command_index - jeho obsah - DREREPLACE apod.)
+ * @return String obsah XML elementu (DREREPLACE)
+ */
+  private static String getCharacterDataFromElement(Element e) {
+    Node child = e.getFirstChild();
+    if (child instanceof CharacterData) {
+       CharacterData cd = (CharacterData) child;
+       return cd.getData();
+    }
+    return "?";
+  }
+
+  /*
+   * metoda bere hotovy XMLEvent a posila ho Statistic Serveru na zpracovani do statistik
+   * @parameters String xmlEvent - XML se zpravou k indexaci
+   */
+    private void sendToStats(String xmlEvent) {
+        String dotaz = "http://" + hostStat + ":" + portStat + "/" + pozadavekStat + "&" + "data=" + xmlEvent;
+        xmlOdpovedStat = "";
+        //System.out.println(dotaz);
+        try
+      {
+         URL url = new URL(dotaz);
+         //System.out.println("Oteviram spojeni podruhe.");
+         URLConnection urlConnection = url.openConnection();
+         HttpURLConnection connection = null;
+         if(urlConnection instanceof HttpURLConnection)
+         {
+            connection = (HttpURLConnection) urlConnection;
+         }
+         else
+         {
+            System.out.println("Please enter an HTTP URL.");
+         }
+         
+         BufferedReader in = new BufferedReader(
+         new InputStreamReader(connection.getInputStream()));
+         String current;
+         while((current = in.readLine()) != null)
+         {
+            xmlOdpovedStat += current;
+         }
+         
+      }catch(IOException e)
+      {
+          
+          e.printStackTrace();
+      }
+    }
+}
