@@ -1,0 +1,65 @@
+# Monitorovaci skript pro automaticke hlidani problematickych situaci
+# V pripade ze dojde k porušeni tresholdu, posle mail
+# Vyuziva statistik v ramci Statistics Serveru
+# Ivan Jelinek 4. 11. 2013, HP
+
+#NUTNE nacronovat tak, aby bezel v casovem intervalu posledniho zaznamu.
+
+require 'net/smtp'
+require 'net/http'
+require 'rexml/document'
+require 'time'
+
+prostredi = "TESTOVACI"
+#prostredi = "PRODUKCNI"
+
+uri = URI('http://localhost:19870/a=statresult')
+res = Net::HTTP.get_response(uri)
+statistiky = res.body if res.is_a?(Net::HTTPSuccess)
+
+def send_mail(nazev, hodnota, typ, start, dokdy)
+message = 
+"From: ijelinek@hp.com
+To: statisticsserver@seznam.cz
+Subject: " + prostredi + " Prostredi - TMCZ Indexing Alert 
+
+Statistika " + nazev +" ma hodnotu " + hodnota.to_s + ". Typ:" + typ + ", cas " + start.to_s + " - " + dokdy.to_s + ".\n"
+
+
+Net::SMTP.start('mx60.seznam.cz', 25, 'EMEA',
+                'statisticsserver', 'statisticsserver1', :login) do |smtp|
+  smtp.send_message message, 'ijelinek@hp.com', 
+                             'statisticsserver@seznam.cz'
+                end
+end
+
+dnes = Time.now
+doc = REXML::Document.new(statistiky)
+#4LOG
+puts "Kontrola provedena " + dnes.to_s
+doc.elements.each ('autnresponse/responsedata/result') do |ele|
+  
+  jmeno = ele.attributes['name']
+  hodnota = ele.attributes['value']
+  typ = ele.attributes['type']
+  start = ele.attributes['from']
+  dokdy = ele.attributes['upto']
+  
+  startDate = Time.strptime(start, '%d/%m/%Y %H:%M:%S')
+  endDate = Time.strptime(dokdy, '%d/%m/%Y %H:%M:%S')
+
+  #vyber jen aktualni zaznam a ten zkontroluj
+  # CountDescOtherFailed bezi 1x denne, cron na 9:30, je nutne takto.
+  if dnes >= startDate && endDate <= (dnes-60*60*10)
+    #pro vsechny komponenty vsechny ostatni chyby
+    if jmeno.include? 'CountDescOtherFailed'
+      #skoncil nejakej v chybe?
+      if hodnota.to_i > 0
+        send_mail(jmeno, hodnota, typ, start, dokdy)
+        #4LOG
+        puts "Odeslan alert pro " + jmeno + " hodnota " + hodnota.to_s + " cas: " + start.to_s + " - " + dokdy.to_s
+      end
+     end
+   end
+  end
+
